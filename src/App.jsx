@@ -1,47 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import "./App.css";
 
+const API_URL = "http://localhost:5000/api";
+
 function App() {
+  const [tasks, setTasks] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState(null);
-
-  const [tasks, setTasks] = useState([
-    {
-      id: 1,
-      title: "Design homepage",
-      description: "Create the main layout for the application.",
-      status: "TODO",
-      file: null,
-    },
-    {
-      id: 2,
-      title: "Prepare API structure",
-      description: "Plan the endpoints for task management.",
-      status: "TODO",
-      file: null,
-    },
-    {
-      id: 3,
-      title: "Build React components",
-      description: "Create reusable components for the task board.",
-      status: "IN PROGRESS",
-      file: null,
-    },
-    {
-      id: 4,
-      title: "Choose database",
-      description: "Decide which database should be used.",
-      status: "NEED DECISION",
-      file: null,
-    },
-    {
-      id: 5,
-      title: "Project setup",
-      description: "React and Vite project has been configured.",
-      status: "DONE",
-      file: null,
-    },
-  ]);
 
   const [formData, setFormData] = useState({
     title: "",
@@ -49,6 +14,27 @@ function App() {
     status: "TODO",
     file: null,
   });
+
+  // Fetch tasks from backend
+  const fetchTasks = async () => {
+    try {
+      const response = await fetch(`${API_URL}/tasks`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch tasks");
+      }
+
+      setTasks(data);
+    } catch (error) {
+      console.error("Error fetching tasks:", error);
+    }
+  };
+
+  // Load tasks when page opens
+  useEffect(() => {
+    fetchTasks();
+  }, []);
 
   // Handle text inputs
   const handleChange = (e) => {
@@ -66,41 +52,78 @@ function App() {
     });
   };
 
-  // Create / Update task
-  const handleSubmit = (e) => {
+  // Create or update task
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (!formData.title.trim()) {
       return;
     }
 
-    if (editingTaskId) {
-      setTasks(
-        tasks.map((task) =>
-          task.id === editingTaskId
-            ? {
-                ...task,
-                title: formData.title,
-                description: formData.description,
-                status: formData.status,
-                file: formData.file,
-              }
-            : task,
-        ),
-      );
-    } else {
-      const newTask = {
-        id: Date.now(),
-        title: formData.title,
-        description: formData.description,
-        status: formData.status,
-        file: formData.file,
-      };
+    try {
+      let task;
 
-      setTasks([...tasks, newTask]);
+      if (editingTaskId) {
+        // Update existing task
+        const response = await fetch(`${API_URL}/tasks/${editingTaskId}`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            title: formData.title,
+            description: formData.description,
+            status: formData.status,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to update task");
+        }
+
+        task = await response.json();
+      } else {
+        // Create new task
+        const response = await fetch(`${API_URL}/tasks`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            title: formData.title,
+            description: formData.description,
+            status: formData.status,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to create task");
+        }
+
+        task = await response.json();
+      }
+
+      // Upload file if selected
+      if (formData.file) {
+        const fileData = new FormData();
+        fileData.append("file", formData.file);
+
+        const fileResponse = await fetch(`${API_URL}/tasks/${task._id}/file`, {
+          method: "POST",
+          body: fileData,
+        });
+
+        if (!fileResponse.ok) {
+          throw new Error("Task saved but file upload failed");
+        }
+      }
+
+      await fetchTasks();
+      resetForm();
+    } catch (error) {
+      console.error("Error saving task:", error);
+      alert(error.message);
     }
-
-    resetForm();
   };
 
   // Reset form
@@ -117,8 +140,21 @@ function App() {
   };
 
   // Delete task
-  const handleDelete = (id) => {
-    setTasks(tasks.filter((task) => task.id !== id));
+  const handleDelete = async (id) => {
+    try {
+      const response = await fetch(`${API_URL}/tasks/${id}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to delete task");
+      }
+
+      await fetchTasks();
+    } catch (error) {
+      console.error("Error deleting task:", error);
+      alert(error.message);
+    }
   };
 
   // Edit task
@@ -127,25 +163,35 @@ function App() {
       title: task.title,
       description: task.description,
       status: task.status,
-      file: task.file || null,
+      file: null,
     });
 
-    setEditingTaskId(task.id);
+    setEditingTaskId(task._id);
     setShowForm(true);
   };
 
   // Change task status
-  const handleStatusChange = (id, newStatus) => {
-    setTasks(
-      tasks.map((task) =>
-        task.id === id
-          ? {
-              ...task,
-              status: newStatus,
-            }
-          : task,
-      ),
-    );
+  const handleStatusChange = async (id, newStatus) => {
+    try {
+      const response = await fetch(`${API_URL}/tasks/${id}/status`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          status: newStatus,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to update status");
+      }
+
+      await fetchTasks();
+    } catch (error) {
+      console.error("Error updating status:", error);
+      alert(error.message);
+    }
   };
 
   // Get tasks for each column
@@ -189,12 +235,14 @@ function App() {
           className="add-task-btn"
           onClick={() => {
             setEditingTaskId(null);
+
             setFormData({
               title: "",
               description: "",
               status: "TODO",
               file: null,
             });
+
             setShowForm(true);
           }}
         >
@@ -220,7 +268,7 @@ function App() {
 
               <div className="task-list">
                 {columnTasks.map((task) => (
-                  <div className="task-card" key={task.id}>
+                  <div className="task-card" key={task._id}>
                     <h3>{task.title}</h3>
 
                     <p>{task.description || "No description provided."}</p>
@@ -230,7 +278,7 @@ function App() {
                       className="status-select"
                       value={task.status}
                       onChange={(e) =>
-                        handleStatusChange(task.id, e.target.value)
+                        handleStatusChange(task._id, e.target.value)
                       }
                     >
                       <option value="TODO">Todo</option>
@@ -240,8 +288,10 @@ function App() {
                     </select>
 
                     {/* Attachment */}
-                    {task.file && (
-                      <div className="task-file">📎 {task.file.name}</div>
+                    {task.file && task.file.originalName && (
+                      <div className="task-file">
+                        📎 {task.file.originalName}
+                      </div>
                     )}
 
                     <div className="card-footer">
@@ -257,7 +307,7 @@ function App() {
 
                         <button
                           className="delete-btn"
-                          onClick={() => handleDelete(task.id)}
+                          onClick={() => handleDelete(task._id)}
                         >
                           Delete
                         </button>
@@ -317,7 +367,7 @@ function App() {
                 <input
                   type="text"
                   name="title"
-                  placeholder="e.g. Design dashboard"
+                  placeholder="e.g. Complete university assignment"
                   value={formData.title}
                   onChange={handleChange}
                 />
